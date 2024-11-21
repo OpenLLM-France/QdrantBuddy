@@ -1,6 +1,7 @@
 from filecatcher.components import Indexer
 from qdrantbuddy.config import load_config
 from qdrant_client import QdrantClient, models
+from typing import List
 
 # Load the configuration
 config = load_config()
@@ -11,7 +12,20 @@ class QdrantCRUD :
         self.collection_name = config.vectordb.collection_name
         self.logger = self.indexer.logger
 
-    
+    async def add_files(self, path: str):
+        """
+        Add files to Qdrant
+        """
+        try:
+            await self.indexer.add_files2vdb(path=path)
+        except Exception as e:
+            self.logger.error(f"Couldn't add directory {path} to Qdrant : {e}")
+            raise
+        
+    async def search(self, query: str, top_k: int):
+        return await self.indexer.vectordb.async_search(query, top_k)
+
+
     def get_file_points(self, file_name: str):
         """
         Get the points associated with a file from Qdrant
@@ -43,7 +57,8 @@ class QdrantCRUD :
             return [res.id for res in results]
         
         except Exception as e:
-            raise Exception(f"An exception as occured: {e}")
+            self.logger.error(f"Couldn't get file points for file {file_name}: {e}")
+            raise
 
 
     def delete_points(self, points: list):
@@ -51,31 +66,37 @@ class QdrantCRUD :
         Delete points from Qdrant
         """
         try:
-            self.indexer.vectordb.client.delete_points(
+            self.indexer.vectordb.client.delete(
                 collection_name=self.collection_name,
                 points_selector=models.PointIdsList(points=points)
             )
         except Exception as e:
-            raise Exception(f"An exception as occured: {e}")
+            self.logger.error(f"Error in `delete_points`: {e}")
     
-    
-    def delete_file_chunks(self, file_name: str):
-        """
-        Delete the chunks associated with a file from Qdrant
-        """
-        try:
-            self.indexer.vectordb.client.delete(
-                collection_name=self.collection_name,
-                points_selector=models.FilterSelector(
-                    filter=models.Filter(
-                        must=[
-                            models.FieldCondition(
-                                key="metadata.source",
-                                match=models.MatchValue(value="file_name"),
-                            ),
-                        ],
-                    )
-                ),
-            )
-        except Exception as e:
-            raise Exception(f"An exception as occured: {e}")
+    def delete_files(self, file_names: List[str]):
+        deleted_files = []
+        not_found_files = []
+
+        for file_name in file_names:
+            try:
+                # Get points associated with the file name
+                points = self.get_file_points(file_name)
+
+                if not points:
+                    self.logger.info(f"No points found for file: {file_name}")
+                    not_found_files.append(file_name)
+                    continue
+
+                # Delete the points
+                self.delete_points(points)
+                deleted_files.append(file_name)
+
+                return deleted_files, not_found_files
+
+            except Exception as e:
+                self.logger.error(f"Error in `delete_files` for file {file_name}: {e}")
+
+
+    def update_file ():
+        pass
+        

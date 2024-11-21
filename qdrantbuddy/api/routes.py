@@ -1,17 +1,17 @@
 from fastapi import APIRouter, HTTPException, File, UploadFile
 from fastapi.responses import JSONResponse
-from filecatcher.components import Indexer
 from typing import List, Optional
 import os
 from pathlib import Path
 from pydantic import BaseModel
 from qdrantbuddy.config import load_config
+from qdrantbuddy.crud import QdrantCRUD
 
 # Load the configuration
 config = load_config()
 
 # Initialize the Indexer instance (assuming config is set)
-indexer = Indexer(config=config)
+qdrant_crud = QdrantCRUD()
 
 router = APIRouter()
 
@@ -31,7 +31,7 @@ async def add_files(files: List[UploadFile] = File(...)):
             file_paths.append(file_path)
         
         # Now pass the directory path to the Indexer
-        await indexer.add_files2vdb(path=temp_dir)
+        await qdrant_crud.add_files(path=temp_dir)
 
         # Optionally, clean up the temporary directory after processing
         for file_path in file_paths:
@@ -55,10 +55,10 @@ async def search(query_params: SearchRequest):
         top_k = query_params.top_k
         
         # Perform the search using the Indexer
-        results = await indexer.vectordb.async_search(query, top_k)
+        results = await qdrant_crud.search(query, top_k)
         
         # Transforming the results (assuming they are LangChain documents)
-        documents = [{"content": doc.page_content, "metadata": doc.metadata} for doc in results]
+        documents = [{"page_content": doc.page_content, "metadata": doc.metadata} for doc in results]
         
         # Return results
         return JSONResponse(content={"results": documents}, status_code=200)
@@ -66,3 +66,29 @@ async def search(query_params: SearchRequest):
     except Exception as e:
         # Handle errors
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/delete-files/")
+async def delete_files(file_names: List[str]):
+    """
+    Delete points in Qdrant associated with the given file names.
+
+    Args:
+        file_names (List[str]): A list of file names whose points are to be deleted.
+
+    Returns:
+        JSONResponse: A confirmation message including details of files processed.
+    """
+
+    try:
+        deleted_files, not_found_files = qdrant_crud.delete_files(file_names)
+        return {
+            "message": "File processing completed.",
+            "files_deleted": deleted_files,
+            "files_not_found": not_found_files,
+        }
+
+    except Exception as e:
+        # Handle errors
+        raise HTTPException(status_code=500, detail=str(e))
+
